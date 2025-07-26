@@ -1,81 +1,368 @@
 import streamlit as st
 import google.generativeai as genai
+import json
+from datetime import datetime
+import difflib
 
-# Add basic styling
+# Configure page
+st.set_page_config(
+    page_title="RegulatoryMind",
+    page_icon="🧠",
+    layout="wide"
+)
+
+# Add styling
 st.markdown("""
 <style>
     .main-header {
-        color: #ff4b4b;
+        color: #1f4e79;
+        text-align: center;
+        margin-bottom: 2rem;
     }
-    .msds-section {
-        margin-top: 1em;
-        border-left: 3px solid #ffdd00;
-        padding-left: 10px;
+    .regulation-card {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #1f4e79;
+        margin-bottom: 1rem;
+    }
+    .changed-regulation {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+    }
+    .compliance-section {
+        background-color: #e8f4fd;
+        padding: 1.5rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }
+    .diff-added {
+        background-color: #d4edda;
+        color: #155724;
+        padding: 2px 4px;
+        border-radius: 3px;
+    }
+    .diff-removed {
+        background-color: #f8d7da;
+        color: #721c24;
+        padding: 2px 4px;
+        border-radius: 3px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Configure API key
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+# Configure Gemini API
+if "GEMINI_API_KEY" in st.secrets:
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# App title and description
-st.markdown("<h1 class='main-header'>Human MSDS Generator</h1>", unsafe_allow_html=True)
-st.write("Turn yourself into a humorous Material Safety Data Sheet!")
+# Sample regulations data
+REGULATIONS_2024 = {
+    "engine_checks": [
+        {
+            "id": "EC-101",
+            "title": "Daily Engine Visual Inspection",
+            "description": "Visual inspection of engine exterior for damage, leaks, or foreign objects",
+            "frequency": "Daily",
+            "requirements": [
+                "Check for oil leaks around engine casing",
+                "Inspect fan blades for damage or foreign object debris",
+                "Verify all engine cowling panels are secure",
+                "Check for fuel leaks at connections"
+            ],
+            "documentation": "Log findings in Aircraft Technical Log"
+        },
+        {
+            "id": "EC-205",
+            "title": "Engine Oil Level Check",
+            "description": "Verification of engine oil quantity and quality",
+            "frequency": "Pre-flight",
+            "requirements": [
+                "Check oil level using dipstick or sight gauge",
+                "Oil level must be between minimum and maximum marks",
+                "Record oil quantity in technical log",
+                "Report any unusual oil consumption"
+            ],
+            "documentation": "Record in pre-flight inspection checklist"
+        },
+        {
+            "id": "EC-310",
+            "title": "Engine Run-up Test",
+            "description": "Ground engine operational test to verify performance parameters",
+            "frequency": "After maintenance",
+            "requirements": [
+                "Engine must reach operating temperature within 5 minutes",
+                "All engine parameters must be within normal limits",
+                "No unusual vibrations or noises",
+                "Throttle response must be smooth and immediate"
+            ],
+            "documentation": "Complete engine run-up form with all parameters recorded"
+        }
+    ]
+}
 
-# Input text area
-user_intro = st.text_area("Introduce yourself", 
-                          "I'm generally calm but prone to excited outbursts...")
+REGULATIONS_2025 = {
+    "engine_checks": [
+        {
+            "id": "EC-101",
+            "title": "Daily Engine Visual Inspection",
+            "description": "Visual inspection of engine exterior for damage, leaks, or foreign objects",
+            "frequency": "Daily",
+            "requirements": [
+                "Check for oil leaks around engine casing",
+                "Inspect fan blades for damage or foreign object debris",
+                "Verify all engine cowling panels are secure",
+                "Check for fuel leaks at connections"
+            ],
+            "documentation": "Log findings in Aircraft Technical Log"
+        },
+        {
+            "id": "EC-205",
+            "title": "Engine Oil Level Check",
+            "description": "Verification of engine oil quantity and quality",
+            "frequency": "Pre-flight",
+            "requirements": [
+                "Check oil level using dipstick or sight gauge",
+                "Oil level must be between minimum and maximum marks",
+                "Record oil quantity in technical log",
+                "Report any unusual oil consumption",
+                "Check oil color and consistency for contamination"
+            ],
+            "documentation": "Record in pre-flight inspection checklist with digital timestamp"
+        },
+        {
+            "id": "EC-310",
+            "title": "Engine Run-up Test",
+            "description": "Ground engine operational test to verify performance parameters",
+            "frequency": "After maintenance",
+            "requirements": [
+                "Engine must reach operating temperature within 4 minutes",
+                "All engine parameters must be within normal limits",
+                "No unusual vibrations or noises",
+                "Throttle response must be smooth and immediate",
+                "Record ambient temperature and pressure conditions"
+            ],
+            "documentation": "Complete engine run-up form with all parameters recorded and digitally signed"
+        }
+    ]
+}
 
-# Function to create prompt for Gemini
-def create_prompt(user_intro):
-    prompt = f"""
-    Create a humorous Material Safety Data Sheet (MSDS) for a person based on this self-introduction:
+def get_regulation_changes():
+    """Compare 2024 and 2025 regulations to identify changes"""
+    changes = []
     
-    "{user_intro}"
+    for i, (reg_2024, reg_2025) in enumerate(zip(REGULATIONS_2024["engine_checks"], REGULATIONS_2025["engine_checks"])):
+        if reg_2024 != reg_2025:
+            changes.append({
+                "regulation_id": reg_2024["id"],
+                "title": reg_2024["title"],
+                "changes": {
+                    "requirements": {
+                        "old": reg_2024["requirements"],
+                        "new": reg_2025["requirements"]
+                    },
+                    "documentation": {
+                        "old": reg_2024["documentation"],
+                        "new": reg_2025["documentation"]
+                    }
+                }
+            })
     
-    Format the MSDS with these sections:
-    1. IDENTIFICATION (product name, chemical family, recommended use)
-    2. HAZARD IDENTIFICATION (signal word, hazard statements, precautionary statements)
-    3. FIRST AID MEASURES (for different emotional states)
-    4. HANDLING AND STORAGE (how to interact with this person)
+    return changes
+
+def create_compliance_prompt(regulations, document_content):
+    """Create prompt for compliance analysis"""
+    return f"""
+    You are RegulatoryMind, an AI compliance expert for aviation engine maintenance.
     
-    Also include NFPA 704 HAZARD RATINGS in text format:
-    - Health (1-4 scale)
-    - Flammability (1-4 scale)
-    - Reactivity (1-4 scale)
-    - Special Hazards (any special symbol)
+    Analyze the uploaded document against these engine check regulations:
     
-    Make it humorous but respectful, treating human traits like chemical properties.
-    Use markdown formatting for readability.
+    {json.dumps(regulations, indent=2)}
+    
+    Document content to analyze:
+    {document_content}
+    
+    Provide a detailed compliance analysis including:
+    1. **Compliance Status**: Overall compliance score (0-100%)
+    2. **Compliant Items**: What the document does well
+    3. **Non-Compliant Items**: What's missing or incorrect
+    4. **Recommendations**: Specific actions to improve compliance
+    5. **Risk Assessment**: Potential risks of non-compliance
+    
+    Format your response in clear markdown with sections and bullet points.
     """
-    return prompt
 
-# Function to generate MSDS using Gemini
-def generate_msds(prompt):
-    model = genai.GenerativeModel('models/gemini-1.5-flash')
-    response = model.generate_content(prompt)
-    return response.text
+def create_impact_analysis_prompt(changes, document_content):
+    """Create prompt for regulatory change impact analysis"""
+    return f"""
+    You are RegulatoryMind, analyzing the impact of regulatory changes.
+    
+    Regulatory changes from 2024 to 2025:
+    {json.dumps(changes, indent=2)}
+    
+    Current document content:
+    {document_content}
+    
+    Analyze the impact of these changes on the uploaded document:
+    
+    1. **Change Summary**: What has changed in the regulations
+    2. **Document Impact**: How these changes affect the current document
+    3. **Required Updates**: Specific changes needed in the document
+    4. **Implementation Timeline**: Suggested timeline for updates
+    5. **Training Requirements**: Any additional training needed
+    6. **Cost Implications**: Potential costs of implementing changes
+    
+    Format your response in clear markdown with actionable recommendations.
+    """
 
-# Process button
-if st.button("Generate My MSDS"):
-    if user_intro:
-        with st.spinner("Analyzing your human composition..."):
-            prompt = create_prompt(user_intro)
-            try:
-                msds_content = generate_msds(prompt)
-                
-                # Display the result
-                st.markdown(msds_content)
-                
-                # Add download button
-                st.download_button(
-                    "Download My MSDS",
-                    msds_content,
-                    file_name="my_msds.md",
-                    mime="text/markdown"
-                )
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-                st.info("This might be due to an API key issue or network problem.")
+# Main app
+st.markdown("<h1 class='main-header'>🧠 RegulatoryMind</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; color: #666; font-size: 1.1em;'>AI-Powered Engineering Compliance Intelligence</p>", unsafe_allow_html=True)
+
+# Sidebar for regulation selection
+st.sidebar.header("Regulation Version")
+selected_year = st.sidebar.selectbox("Select Regulation Year", ["2024", "2025"])
+
+regulations = REGULATIONS_2024 if selected_year == "2024" else REGULATIONS_2025
+
+# Display regulations
+st.header(f"🔧 Engine Check Regulations ({selected_year})")
+
+for reg in regulations["engine_checks"]:
+    # Check if this regulation changed between years
+    is_changed = False
+    if selected_year == "2025":
+        reg_2024 = next((r for r in REGULATIONS_2024["engine_checks"] if r["id"] == reg["id"]), None)
+        if reg_2024 and reg_2024 != reg:
+            is_changed = True
+    
+    card_class = "regulation-card changed-regulation" if is_changed else "regulation-card"
+    
+    st.markdown(f"""
+    <div class="{card_class}">
+        <h4>{reg['id']}: {reg['title']} {'🔄' if is_changed else ''}</h4>
+        <p><strong>Description:</strong> {reg['description']}</p>
+        <p><strong>Frequency:</strong> {reg['frequency']}</p>
+        <p><strong>Documentation:</strong> {reg['documentation']}</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    with st.expander(f"View Requirements - {reg['id']}"):
+        for req in reg['requirements']:
+            st.write(f"• {req}")
+
+# Document upload section
+st.header("📄 Document Analysis")
+uploaded_file = st.file_uploader("Upload your engine check document", type=['txt', 'md', 'pdf'])
+
+if uploaded_file is not None:
+    # Read file content
+    if uploaded_file.type == "text/plain" or uploaded_file.type == "text/markdown":
+        document_content = str(uploaded_file.read(), "utf-8")
     else:
-        st.error("Please introduce yourself first!")
+        st.warning("PDF support coming soon. Please upload a text file for now.")
+        document_content = None
+    
+    if document_content:
+        st.success("Document uploaded successfully!")
+        
+        # Display document preview
+        with st.expander("Document Preview"):
+            st.text_area("Content", document_content, height=200, disabled=True)
+        
+        # Analysis buttons
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            if st.button("🔍 Analyze Compliance", type="primary"):
+                if "GEMINI_API_KEY" in st.secrets:
+                    with st.spinner("Analyzing compliance..."):
+                        try:
+                            model = genai.GenerativeModel('models/gemini-1.5-flash')
+                            prompt = create_compliance_prompt(regulations, document_content)
+                            response = model.generate_content(prompt)
+                            
+                            st.markdown(f"""
+                            <div class="compliance-section">
+                                <h3>🎯 Compliance Analysis ({selected_year} Regulations)</h3>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            st.markdown(response.text)
+                            
+                        except Exception as e:
+                            st.error(f"Analysis failed: {str(e)}")
+                else:
+                    st.error("Gemini API key not configured")
+        
+        with col2:
+            if st.button("📊 Analyze Regulatory Changes Impact"):
+                if "GEMINI_API_KEY" in st.secrets:
+                    changes = get_regulation_changes()
+                    if changes:
+                        with st.spinner("Analyzing regulatory impact..."):
+                            try:
+                                model = genai.GenerativeModel('models/gemini-1.5-flash')
+                                prompt = create_impact_analysis_prompt(changes, document_content)
+                                response = model.generate_content(prompt)
+                                
+                                st.markdown(f"""
+                                <div class="compliance-section">
+                                    <h3>📈 Regulatory Change Impact Analysis</h3>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                st.markdown(response.text)
+                                
+                            except Exception as e:
+                                st.error(f"Analysis failed: {str(e)}")
+                    else:
+                        st.info("No regulatory changes detected between 2024 and 2025")
+                else:
+                    st.error("Gemini API key not configured")
+
+# Regulatory changes section
+st.header("🔄 Regulatory Changes (2024 → 2025)")
+
+changes = get_regulation_changes()
+if changes:
+    for change in changes:
+        st.subheader(f"{change['regulation_id']}: {change['title']}")
+        
+        # Requirements changes
+        if change['changes']['requirements']['old'] != change['changes']['requirements']['new']:
+            st.write("**Requirements Changes:**")
+            
+            old_reqs = change['changes']['requirements']['old']
+            new_reqs = change['changes']['requirements']['new']
+            
+            # Simple diff display
+            for i, (old_req, new_req) in enumerate(zip(old_reqs, new_reqs)):
+                if old_req != new_req:
+                    st.markdown(f"**Requirement {i+1}:**")
+                    st.markdown(f"❌ **2024:** {old_req}")
+                    st.markdown(f"✅ **2025:** {new_req}")
+            
+            # Check for added requirements
+            if len(new_reqs) > len(old_reqs):
+                st.markdown("**New Requirements:**")
+                for new_req in new_reqs[len(old_reqs):]:
+                    st.markdown(f"🆕 {new_req}")
+        
+        # Documentation changes
+        if change['changes']['documentation']['old'] != change['changes']['documentation']['new']:
+            st.write("**Documentation Changes:**")
+            st.markdown(f"❌ **2024:** {change['changes']['documentation']['old']}")
+            st.markdown(f"✅ **2025:** {change['changes']['documentation']['new']}")
+        
+        st.markdown("---")
+else:
+    st.info("No changes detected between 2024 and 2025 regulations")
+
+# Footer
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #666; margin-top: 2rem;'>
+    <p>🧠 <strong>RegulatoryMind</strong> - AI-Powered Engineering Compliance Intelligence</p>
+    <p>Ensuring regulatory compliance through intelligent automation</p>
+</div>
+""", unsafe_allow_html=True)
