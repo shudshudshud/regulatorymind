@@ -11,45 +11,150 @@ st.set_page_config(
     layout="wide"
 )
 
-# Add styling
-st.markdown("""
-<style>
-    .main-header {
-        color: #1f4e79;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .regulation-card {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #1f4e79;
-        margin-bottom: 1rem;
-    }
-    .changed-regulation {
-        background-color: #fff3cd;
-        border-left: 4px solid #ffc107;
-    }
-    .compliance-section {
-        background-color: #e8f4fd;
-        padding: 1.5rem;
-        border-radius: 8px;
-        margin: 1rem 0;
-    }
-    .diff-added {
-        background-color: #d4edda;
-        color: #155724;
-        padding: 2px 4px;
-        border-radius: 3px;
-    }
-    .diff-removed {
-        background-color: #f8d7da;
-        color: #721c24;
-        padding: 2px 4px;
-        border-radius: 3px;
-    }
-</style>
-""", unsafe_allow_html=True)
+# Theme configuration
+def apply_theme(theme_mode):
+    """Apply light or dark theme styles"""
+    if theme_mode == "Light":
+        return """
+        <style>
+            .stApp {
+                background-color: #ffffff;
+                color: #000000;
+            }
+            .main-header {
+                color: #1f4e79;
+                text-align: center;
+                margin-bottom: 2rem;
+            }
+            .regulation-card {
+                background-color: #f8f9fa;
+                padding: 1rem;
+                border-radius: 8px;
+                border-left: 4px solid #1f4e79;
+                margin-bottom: 1rem;
+                color: #000000;
+            }
+            .changed-regulation {
+                background-color: #fff3cd;
+                border-left: 4px solid #ffc107;
+                color: #000000;
+            }
+            .compliance-section {
+                background-color: #e8f4fd;
+                padding: 1.5rem;
+                border-radius: 8px;
+                margin: 1rem 0;
+                color: #000000;
+            }
+            .diff-added {
+                background-color: #d4edda;
+                color: #155724;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            .diff-removed {
+                background-color: #f8d7da;
+                color: #721c24;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            .stSidebar {
+                background-color: #f0f2f6;
+            }
+            .stTextArea textarea {
+                background-color: #ffffff;
+                color: #000000;
+            }
+            .stSelectbox > div > div {
+                background-color: #ffffff;
+                color: #000000;
+            }
+            /* Force light theme for main content */
+            .stMarkdown, .stText, .stSubheader, .stHeader {
+                color: #000000 !important;
+            }
+        </style>
+        """
+    else:  # Dark theme
+        return """
+        <style>
+            .stApp {
+                background-color: #0e1117;
+                color: #fafafa;
+            }
+            .main-header {
+                color: #4da6ff;
+                text-align: center;
+                margin-bottom: 2rem;
+            }
+            .regulation-card {
+                background-color: #1e2124;
+                padding: 1rem;
+                border-radius: 8px;
+                border-left: 4px solid #4da6ff;
+                margin-bottom: 1rem;
+                color: #fafafa;
+            }
+            .changed-regulation {
+                background-color: #2d2a1e;
+                border-left: 4px solid #ffc107;
+                color: #fafafa;
+            }
+            .compliance-section {
+                background-color: #1a1f2e;
+                padding: 1.5rem;
+                border-radius: 8px;
+                margin: 1rem 0;
+                color: #fafafa;
+            }
+            .diff-added {
+                background-color: #1a3d2e;
+                color: #5bc27d;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            .diff-removed {
+                background-color: #3d1a1a;
+                color: #ff6b6b;
+                padding: 2px 4px;
+                border-radius: 3px;
+            }
+            .stSidebar {
+                background-color: #262730;
+            }
+            .stTextArea textarea {
+                background-color: #1e2124;
+                color: #fafafa;
+            }
+            .stSelectbox > div > div {
+                background-color: #1e2124;
+                color: #fafafa;
+            }
+            /* Force dark theme for main content */
+            .stMarkdown, .stText, .stSubheader, .stHeader {
+                color: #fafafa !important;
+            }
+        </style>
+        """
+
+# Initialize theme in session state
+if 'theme_mode' not in st.session_state:
+    st.session_state.theme_mode = "Light"  # Default to light mode
+
+# Theme toggle in sidebar
+st.sidebar.header("Settings")
+theme_mode = st.sidebar.selectbox(
+    "Theme Mode",
+    ["Light", "Dark"],
+    index=0 if st.session_state.theme_mode == "Light" else 1,
+    key="theme_selector"
+)
+
+# Update session state
+st.session_state.theme_mode = theme_mode
+
+# Apply the selected theme
+st.markdown(apply_theme(theme_mode), unsafe_allow_html=True)
 
 # Configure Gemini API
 if "GEMINI_API_KEY" in st.secrets:
@@ -360,7 +465,8 @@ else:
 
 # Footer
 st.markdown("---")
-st.markdown("""
+footer_class = "footer-light" if theme_mode == "Light" else "footer-dark"
+st.markdown(f"""
 <div style='text-align: center; color: #666; margin-top: 2rem;'>
     <p>🧠 <strong>RegulatoryMind</strong> - AI-Powered Engineering Compliance Intelligence</p>
     <p>Ensuring regulatory compliance through intelligent automation</p>
